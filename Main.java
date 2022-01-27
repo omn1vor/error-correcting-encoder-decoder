@@ -1,124 +1,70 @@
 package correcter;
 
+import java.io.*;
 import java.util.Arrays;
 import java.util.Random;
-import java.util.Scanner;
 
 public class Main {
+
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        Sender sender = new Sender(scanner.nextLine());
-        sender.printMessage();
-        sender.encode();
-        sender.printMessage();
-        sender.addNoise();
-        sender.printMessage();
-        sender.decode();
-        sender.printMessage();
-    }
-
-}
-
-class Dictionary {
-
-    private final int len = 26*2 + 10 + 1; // a-z, A-Z, 0-9, space
-    private final char[] dict = new char[len];
-    private final Random rnd = new Random();
-
-    Dictionary() {
-        int i = 0;
-
-        for (char c = 'a'; c <= 'z'; c++) {
-            dict[i] = c;
-            i++;
-        }
-
-        for (char c = 'A'; c <= 'Z'; c++) {
-            dict[i] = c;
-            i++;
-        }
-
-        for (char c = '0'; c <= '9'; c++) {
-            dict[i] = c;
-            i++;
-        }
-
-        dict[i] = ' ';
-    }
-
-    char getRandom() {
-        return dict[rnd.nextInt(len)];
-    }
-
-    char getRandomInstead(char c) {
-        char random = getRandom();
-        while (random == c) {
-            random = getRandom();
-        }
-        return random;
-    }
-}
-
-class Sender {
-
-    final int errorFrequency = 3;
-    private String message;
-
-    Sender(String message) {
-        this.message = message;
-    }
-
-    void printMessage() {
-        System.out.println(message);
-    }
-
-    void encode() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < message.length(); i++) {
-            sb.append(String.valueOf(message.charAt(i)).repeat(errorFrequency));
-        }
-        this.message = sb.toString();
-    }
-
-    void addNoise() {
-        StringBuilder sb = new StringBuilder(message);
-        Dictionary dict = new Dictionary();
-        Random rnd = new Random();
-
-        for (int i = 0; i < sb.length(); i += errorFrequency) {
-            int randomIndex = i + rnd.nextInt(errorFrequency);
-            char current = sb.charAt(randomIndex);
-            sb.setCharAt(randomIndex, dict.getRandomInstead(current));
-        }
-        this.message = sb.toString();
-    }
-
-    void decode() {
-        StringBuilder sb = new StringBuilder();
-
-        for (int i = 0; i < message.length(); i += errorFrequency) {
-            char c = getMostFrequentChar(Arrays.copyOfRange(message.toCharArray(), i, i + errorFrequency));
-            sb.append(c);
-        }
-        message = sb.toString();
-    }
-
-    char getMostFrequentChar(char[] arr) {
-        char mostFrequent = '\0';
-        int maxCount = 0;
-
-        for (char currentChar : arr) {
-            int count = 0;
-            for (char c : arr) {
-                if (currentChar == c) {
-                    count++;
-                }
-            }
-            if (count > maxCount) {
-                maxCount = count;
-                mostFrequent = currentChar;
+        String path = "Error Correcting Encoder-Decoder/task/src/correcter/";
+        for (String arg : args) {
+            if ("-local".equals(arg)) {
+                path = "";
+                break;
             }
         }
-        return mostFrequent;
+        final File inFile = new File(path + "send.txt");
+        final File outFile = new File(path + "received.txt");
+
+        BufferedInputStream input;
+        BufferedOutputStream output;
+        try (FileInputStream fileInputStream = new FileInputStream(inFile);
+             FileOutputStream fileOutputstream = new FileOutputStream(outFile)) {
+            input = new BufferedInputStream(fileInputStream);
+            output = new BufferedOutputStream(fileOutputstream);
+            byte[] bytes = input.readAllBytes();
+            for (byte currentByte : bytes) {
+                output.write(addNoise(currentByte));
+            }
+            output.flush();
+        } catch (IOException e) {
+            System.out.println(e.getMessage());
+        }
     }
+
+    static byte[] byteToBits(byte b) {
+        final byte zero = 0;
+        byte[] bits = new byte[8];
+        Arrays.fill(bits, zero);
+        int i = bits.length - 1;
+        while (b != 0 && i >= 0) {
+            if (b % 2 != 0) {
+                bits[i] = 1;
+            }
+            i--;
+            b >>>= 1;
+        }
+        return bits;
+    }
+
+    static byte bitsToByte(byte[] bits) {
+        byte value = 0;
+        final int lastIndex = bits.length - 1;
+        for (int i = lastIndex; i >= 0; i--) {
+            value += bits[i] * Math.pow(2, lastIndex - i);
+        }
+        return value;
+    }
+
+    static byte addNoise(byte byteToChange) {
+        final Random rnd = new Random();
+        int bitToChange = rnd.nextInt(8);
+        byte[] bits = byteToBits(byteToChange);
+        bits[bitToChange] = (byte) (bits[bitToChange] == 0 ? 1 : 0);
+        return bitsToByte(bits);
+    }
+
 }
+
+
