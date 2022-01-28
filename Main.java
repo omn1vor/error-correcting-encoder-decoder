@@ -2,12 +2,8 @@ package correcter;
 
 import java.io.*;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Random;
 
 public class Main {
-
-    static final int BYTE_LEN = 8;
 
     public static void main(String[] args) {
         String path = "";
@@ -36,35 +32,23 @@ public class Main {
     }
 
     static byte[] encode(byte[] bytes) {
-        byte parity = 0;
         ArrayList<Byte> encoded = new ArrayList<>();
-        int outBitNum = 0;
-        byte outByte = 0;
+        BitWriter bitWriter = new BitWriter();
         for (byte b : bytes) {
-            for (int i = 0; i < BYTE_LEN; i++) {
-                int bitValue = (b & (1 << BYTE_LEN - 1 - i)) == 0 ? 0 : 1;
-                if (outBitNum > 5) {
-                    if (parity == 1) {
-                        outByte |= (1 << BYTE_LEN - 1 - outBitNum++);
-                        outByte |= (1 << BYTE_LEN - 1 - outBitNum);
-                    } else {
-                        outByte &= ~(1 << BYTE_LEN - 1 - outBitNum++);
-                        outByte &= ~(1 << BYTE_LEN - 1 - outBitNum);
-                    }
-                    encoded.add(outByte);
-                    outByte = 0;
-                    outBitNum = 0;
-                    parity = 0;
+            BitReader bitReader = new BitReader(b);
+            while (bitReader.hasNext()) {
+                int bitValue = bitReader.readBit();
+                if (!bitWriter.hasSpaceForData()) {
+                    bitWriter.writeParity();
+                    encoded.add(bitWriter.getValue());
+                    bitWriter = new BitWriter();
                 }
-                if (bitValue != 0) {
-                    outByte |= (1 << BYTE_LEN - 1 - outBitNum++);
-                    outByte |= (1 << BYTE_LEN - 1 - outBitNum++);
-                } else {
-                    outByte &= ~(1 << BYTE_LEN - 1 - outBitNum++);
-                    outByte &= ~(1 << BYTE_LEN - 1 - outBitNum++);
-                }
-                parity ^= bitValue;
+                bitWriter.writeBit(bitValue);
             }
+        }
+        if (!bitWriter.isNew() && bitWriter.hasSpaceForData()) {
+            bitWriter.flush();
+            encoded.add(bitWriter.getValue());
         }
         byte[] arr = new byte[encoded.size()];
         for (int i = 0; i < arr.length; i++) {
@@ -72,13 +56,98 @@ public class Main {
         }
         return arr;
     }
+}
 
-    static byte addNoise(byte byteToChange) {
-        final Random rnd = new Random();
-        int bitToChange = rnd.nextInt(BYTE_LEN);
-        return (byte) (byteToChange ^ (1 << bitToChange));
+abstract class ByteModel {
+
+    static final int BYTE_LEN = 8;
+    static final int BIT_CHUNK = 2;
+    byte value;
+    int cursor;
+
+    public ByteModel() {
+        this.cursor = 0;
+        this.value = 0;
+    }
+
+    public byte getValue() {
+        return value;
+    }
+
+    public int getCursor() {
+        return cursor;
+    }
+
+    public boolean isNew() {
+        return cursor == 0;
+    }
+}
+
+class BitWriter extends ByteModel {
+
+    private int parity = 0;
+    private byte bitMask = 0;
+
+    public BitWriter() {
+        super();
+
+        for (int i = 0; i < BIT_CHUNK; i++) {
+            bitMask += Math.pow(2, i);
+        }
+    }
+
+    public void writeBit(int bitValue) {
+        final int bitsLeft = BYTE_LEN - cursor - BIT_CHUNK;
+        if (cursor + BIT_CHUNK > BYTE_LEN) {
+            String msg = String.format("Error. Trying to write %d bits while only %d bits left", BIT_CHUNK, bitsLeft);
+            throw new IllegalArgumentException(msg);
+        }
+
+        if (bitValue != 0) {
+            value |= (bitMask << bitsLeft);
+        }
+        cursor += BIT_CHUNK;
+        parity ^= bitValue;
+    }
+
+    public void writeParity() {
+        writeBit(parity);
+    }
+
+    public boolean hasSpaceForData() {
+        return cursor < 6;
+    }
+
+    public void flush() {
+        if (isNew()) {
+            return;
+        }
+        while (hasSpaceForData()) {
+            writeBit(0);
+        }
+        writeParity();
     }
 
 }
+
+class BitReader extends ByteModel {
+
+    public BitReader(byte value) {
+        super();
+        this.value = value;
+    }
+
+    public int readBit() {
+        int bitValue = (value & (1 << BYTE_LEN - 1 - cursor)) == 0 ? 0 : 1;
+        cursor++;
+        return bitValue;
+    }
+
+    public boolean hasNext() {
+        return cursor < BYTE_LEN;
+    }
+}
+
+
 
 
