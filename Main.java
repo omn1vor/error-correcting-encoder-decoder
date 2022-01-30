@@ -5,7 +5,7 @@ import java.util.Scanner;
 public class Main {
 
     public static void main(String[] args) {
-        String path = "";
+        String path = "./";
         for (String arg : args) {
             if ("-local".equals(arg)) {
                 path = "Error Correcting Encoder-Decoder/task/src/correcter/";
@@ -17,6 +17,8 @@ public class Main {
         Correcter correcter = new Correcter(scanner.nextLine(), path);
         correcter.process();
     }
+
+
 }
 
 

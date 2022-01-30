@@ -1,7 +1,6 @@
 package correcter;
 
 import java.io.*;
-import java.util.ArrayList;
 import java.util.Random;
 
 public class Correcter {
@@ -35,6 +34,9 @@ public class Correcter {
 
 abstract class Mode {
 
+    static final int MAX_BIT = 7;
+    static final int[] parityBits = new int[] {0, 1, 3};
+    static final int[] valueBits = new int[] {2, 4, 5, 6};
     String inputFile;
     String outputFile;
     String pathPrefix = "";
@@ -64,6 +66,10 @@ abstract class Mode {
         }
     }
 
+    int getBitValue(byte b, int bitPosition) {
+        return (b & 1 << MAX_BIT - bitPosition) == 0 ? 0 : 1;
+    }
+
     public void setPathPrefix(String pathPrefix) {
         this.pathPrefix = pathPrefix;
     }
@@ -79,29 +85,36 @@ class Encode extends Mode {
 
     @Override
     void process() {
-        ArrayList<Byte> encoded = new ArrayList<>();
-        BitWriter bitWriter = new BitWriter(true);
+        outputBytes = new byte[inputBytes.length * 2];
+        int outputByteIndex = 0;
         for (byte b : inputBytes) {
-            BitReader bitReader = new BitReader(b);
-            while (bitReader.hasNext()) {
-                int bitValue = bitReader.readBit();
-                if (!bitWriter.hasSpaceForData()) {
-                    bitWriter.writeParity();
-                    encoded.add(bitWriter.getValue());
-                    bitWriter = new BitWriter(true);
+            outputBytes[outputByteIndex++] = encodeHalfByte(b, 0);
+            outputBytes[outputByteIndex++] = encodeHalfByte(b, 4);
+        }
+    }
+
+    byte encodeHalfByte(byte b, int start) {
+        byte encoded = 0;
+        for (int i : valueBits) {
+            int bitValue = getBitValue(b, start++);
+            encoded |= bitValue << MAX_BIT - i;
+        }
+        encoded = writeParity(encoded);
+        return encoded;
+    }
+
+    byte writeParity(byte b) {
+        for (int parityBitIndex : parityBits) {
+            int sum = 0;
+            int step = parityBitIndex + 1;
+            for (int start = parityBitIndex; start < MAX_BIT; start += step * 2) {
+                for (int i = start; i < start + step; i++) {
+                    sum += getBitValue(b, i);
                 }
-                bitWriter.writeBit(bitValue);
             }
+            b |= sum % 2 << MAX_BIT - parityBitIndex;
         }
-        if (!bitWriter.isNew()) {
-            bitWriter.flush();
-            encoded.add(bitWriter.getValue());
-        }
-        byte[] arr = new byte[encoded.size()];
-        for (int i = 0; i < arr.length; i++) {
-            arr[i] = encoded.get(i);
-        }
-        this.outputBytes = arr;
+        return b;
     }
 }
 
@@ -115,12 +128,11 @@ class Send extends Mode {
 
     @Override
     void process() {
-        byte[] corrupted = inputBytes.clone();
+        outputBytes = inputBytes.clone();
         Random rnd = new Random();
         for (int i = 0; i < inputBytes.length; i++) {
-            corrupted[i] = (byte) (inputBytes[i] ^ (1 << rnd.nextInt(8)));
+            outputBytes[i] = (byte) (inputBytes[i] ^ (1 << rnd.nextInt(8)));
         }
-        this.outputBytes = corrupted;
     }
 }
 
@@ -134,49 +146,47 @@ class Decode extends Mode {
 
     @Override
     void process() {
-        ArrayList<Byte> decoded = new ArrayList<>();
-        BitWriter bitWriter = new BitWriter();
-        for (byte b : inputBytes) {
-            int brokenPair = 0;
-            int[] bits = new int[4]; // first 3 - values, 4th - parity
-            BitReader bitReader = new BitReader(b);
-            for (int i = 0; i < bits.length; i++) {
-                int firstBit = bitReader.readBit();
-                int secondBit = bitReader.readBit();
-                if (firstBit != secondBit) {
-                    brokenPair = i;
-                } else {
-                    bits[i] = firstBit;
-                }
+        outputBytes = new byte[inputBytes.length / 2];
+        int outputIndex = 0;
+        int counter = 0;
+        int start = 0;
+        byte decoded = 0;
+        for (byte b: inputBytes) {
+            byte fixed = fixByteErrors(b);
+            for (int i : valueBits) {
+                int bitValue = getBitValue(fixed, i);
+                decoded |= bitValue << MAX_BIT - start++;
             }
-            if (brokenPair != 3) {
-                int parity = bits[3];
-                int sum = 0;
-                for (int i = 0; i < 3; i++) {
-                    sum += bits[i];
-                }
-                if (sum % 2 != parity) {
-                    bits[brokenPair] = 1;
-                }
-            }
-            for (int i = 0; i < 3; i++) {
-                if (!bitWriter.hasSpaceForData()) {
-                    decoded.add(bitWriter.getValue());
-                    bitWriter = new BitWriter();
-                }
-                bitWriter.writeBit(bits[i]);
+            if (++counter % 2 == 0) {
+                outputBytes[outputIndex++] = decoded;
+                decoded = 0;
+                start = 0;
             }
         }
-        if (!bitWriter.isNew() && !bitWriter.hasSpaceForData()) {
-            bitWriter.flush();
-            decoded.add(bitWriter.getValue());
-        }
-        byte[] arr = new byte[decoded.size()];
-        for (int i = 0; i < arr.length; i++) {
-            arr[i] = decoded.get(i);
-        }
-        this.outputBytes = arr;
     }
 
+    private byte fixByteErrors(byte b) {
+        int parityCounter = 0;
+        int paritySum = 0;
+        for (int parityBitIndex : parityBits) {
+            int sum = 0;
+            int step = parityBitIndex + 1;
+            for (int start = parityBitIndex; start < MAX_BIT; start += step * 2) {
+                for (int i = start; i < start + step; i++) {
+                    if (i != parityBitIndex) {
+                        sum += getBitValue(b, i);
+                    }
+                }
+            }
+            if (getBitValue(b, parityBitIndex) != sum % 2) {
+                parityCounter++;
+                paritySum += step;
+            }
+        }
+        if (parityCounter > 0) {
+            b ^= 1 << MAX_BIT - (paritySum - 1);
+        }
+        return b;
+    }
 
 }
